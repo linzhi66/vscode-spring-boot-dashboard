@@ -4,6 +4,11 @@ All notable changes to the "vscode-spring-boot-dashboard" extension will be docu
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+### Added
+- New setting `spring.dashboard.excludeApps`: glob patterns (matched against project name and path) to hide projects from the apps view.
+- New setting `spring.dashboard.appDetection`: `annotation` mode only recognizes projects with an `@SpringBootApplication` main class as runnable apps, filtering out library modules with an indirect Spring Boot dependency (e.g. via `spring-cloud-starter-openfeign`). The default `classpath` mode keeps the legacy behavior.
+
 ## 0.14.0
 ### Added
 - Show active profiles on BootApp description when attached to live process. [#320](https://github.com/microsoft/vscode-spring-boot-dashboard/issues/320).

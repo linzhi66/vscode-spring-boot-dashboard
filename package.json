@@ -1,8 +1,8 @@
 {
-  "name": "vscode-spring-boot-dashboard",
-  "displayName": "Spring Boot Dashboard",
-  "description": "Spring Boot Dashboard for VS Code",
-  "version": "0.14.0",
+  "name": "vscode-spring-boot-dashboard-x",
+  "displayName": "Spring Boot Dashboard X",
+  "description": "Spring Boot Dashboard X for VS Code",
+  "version": "0.14.1",
   "license": "MIT",
   "icon": "resources/logo.png",
   "publisher": "vscjava",

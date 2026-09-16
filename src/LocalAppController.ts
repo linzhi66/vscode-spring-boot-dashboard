@@ -8,7 +8,7 @@ import * as vscode from "vscode";
 import { AppState, BootApp } from "./BootApp";
 import { LocalAppManager } from "./LocalAppManager";
 import { MainClassData } from "./types/jdtls";
-import { constructOpenUrl, isActuatorJarFile, readAll } from "./utils";
+import { constructOpenUrl, isActuatorJarFile, isAlive, readAll } from "./utils";
 
 import getPort = require("get-port");
 import { sendInfo } from "vscode-extension-telemetry-wrapper";
@@ -129,13 +129,17 @@ export class LocalAppController {
 
 
     public onDidStartBootApp(session: vscode.DebugSession): void {
+        // Match against all known projects (unfiltered): a project whose annotation
+        // verification is still pending, or which was just excluded by settings,
+        // must not lose its debug session binding — otherwise its running state
+        // can never be tracked.
         // exact match
-        let app: BootApp | undefined = this.manager.getAppList().find((elem: BootApp) => elem.activeSessionName === session.name);
+        let app: BootApp | undefined = this.manager.getAllApps().find((elem: BootApp) => elem.activeSessionName === session.name);
 
         // workaround if not launched from dashboard, where `activeSessionName` is not set
         // See https://github.com/microsoft/vscode-spring-boot-dashboard/issues/177
         if (app === undefined) {
-            app = this.manager.getAppList().find((elem: BootApp) => elem.name === session.configuration.projectName);
+            app = this.manager.getAllApps().find((elem: BootApp) => elem.name === session.configuration.projectName);
         }
 
         if (app) {
@@ -143,6 +147,7 @@ export class LocalAppController {
             if (isActuatorOnClasspath(session.configuration)) {
                 // actuator enabled: wait live connection to update running state.
                 this._setState(app, AppState.LAUNCHING);
+                this._watchLaunchingApp(app);
                 sendInfo("", { name: "onDidStartBootApp", withActuator: "true" });
             } else {
                 // actuator absent: no live connection, set project as 'running' immediately.
@@ -152,6 +157,59 @@ export class LocalAppController {
                 sendInfo("", { name: "onDidStartBootApp", withActuator: "false" });
             }
         }
+    }
+
+    /**
+     * Fallback for apps whose live-process connection never arrives.
+     *
+     * When several services start concurrently (typical for a microservice
+     * workspace), the spring-boot extension's process discovery can miss the
+     * freshly spawned JVM — it resolves the java child of the launch shell once,
+     * and under load that child appears after the lookup — so no live connection
+     * is ever established and the app would spin in "launching" forever, even
+     * though it is fully up (see the console output).
+     *
+     * Until the live connection takes over, poll the app's JMX endpoint (each
+     * launch config gets a unique jmxremote.port) and flip the app to "running"
+     * as soon as its web server reports a port. Without a JMX port, fall back to
+     * checking that the debug session's process is still alive, so the state at
+     * least stops spinning.
+     */
+    private _watchLaunchingApp(app: BootApp): void {
+        const POLL_INTERVAL_MS = 5 * 1000;
+        const MAX_POLLS = 60; // ~5 minutes
+        let polls = 0;
+        const watchdog: NodeJS.Timeout = setInterval(async () => {
+            if (app.state !== AppState.LAUNCHING) {
+                // live process connected (or the app stopped) — the fallback is off duty.
+                clearInterval(watchdog);
+                return;
+            }
+            if (this.manager.getSessionByApp(app) === undefined) {
+                clearInterval(watchdog);
+                return;
+            }
+            if (++polls > MAX_POLLS) {
+                clearInterval(watchdog);
+                return;
+            }
+
+            try {
+                const serverInfo = await this._queryJmxServerInfo(app);
+                if (serverInfo) {
+                    clearInterval(watchdog);
+                    app.port = serverInfo.port;
+                    app.contextPath = serverInfo.contextPath;
+                    this._setState(app, AppState.RUNNING);
+                } else if (app.pid !== undefined && (await isAlive(app.pid)) === false) {
+                    // process died without ever serving — back to inactive.
+                    clearInterval(watchdog);
+                    this._setState(app, AppState.INACTIVE);
+                }
+            } catch (error) {
+                console.log(error);
+            }
+        }, POLL_INTERVAL_MS);
     }
 
     public async stopBootApps() {
@@ -195,7 +253,13 @@ export class LocalAppController {
         }
     }
 
-    private async getOpenUrlFromJMX(app: BootApp) {
+    /**
+     * Queries a locally running app's JMX endpoint (see the vmArgs added in
+     * `resolveDebugConfigurationWithSubstitutedVariables`) and returns its server
+     * port and context path. `undefined` when the app has no JMX port or the
+     * JVM is not reachable (e.g. not started yet).
+     */
+    private async _queryJmxServerInfo(app: BootApp): Promise<{ port: number, contextPath: string } | undefined> {
         if (!app.jmxPort) {
             return undefined;
         }
@@ -246,7 +310,12 @@ export class LocalAppController {
             contextPath = ""; //if no context path is defined then fallback to root path
         }
 
-        return port ? constructOpenUrl(contextPath, port) : undefined;
+        return port !== undefined ? { port, contextPath } : undefined;
+    }
+
+    private async getOpenUrlFromJMX(app: BootApp) {
+        const serverInfo = await this._queryJmxServerInfo(app);
+        return serverInfo ? constructOpenUrl(serverInfo.contextPath, serverInfo.port) : undefined;
     }
 
     public async openBootApp(app: BootApp): Promise<void> {

@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT license.
 
+import * as minimatch from "minimatch";
 import * as path from "path";
 import { Readable } from "stream";
 import * as vscode from "vscode";
@@ -170,6 +171,55 @@ export function constructOpenUrl(contextPath: string, portString: number | strin
 export async function showFilterInView(viewId: string) {
     await vscode.commands.executeCommand(`${viewId}.focus`);
     await vscode.commands.executeCommand("list.find");
+}
+
+/**
+ * Whether a project is hidden from the dashboard by the `spring.dashboard.excludeApps`
+ * setting. Each glob pattern is matched against the project name, the raw project
+ * location reported by the Java language server, and its decoded file system path,
+ * so both plain project-name and path-style patterns work.
+ */
+export function isAppExcluded(name: string, appPath: string): boolean {
+    const patterns: string[] = vscode.workspace.getConfiguration("spring.dashboard").get("excludeApps") ?? [];
+    if (patterns.length === 0) {
+        return false;
+    }
+    const candidates = [name, appPath];
+    if (/^[a-z]+:/i.test(appPath)) {
+        // jdt.ls reports project locations as URIs in some setups.
+        candidates.push(vscode.Uri.parse(appPath).fsPath);
+    }
+    return patterns.some(pattern => candidates.some(candidate => minimatch(candidate, pattern, { dot: true })));
+}
+
+const SPRING_BOOT_APPLICATION_ANNOTATION = /@\s*(?:[\w.]+\.)?SpringBootApplication\b/;
+
+/**
+ * Whether any of the given main classes is annotated with `@SpringBootApplication`.
+ *
+ * Used by the `annotation` app detection mode to tell runnable apps from library
+ * modules that only have an indirect dependency on Spring Boot (e.g. via
+ * spring-cloud-starter-openfeign): those have no main class at all, and even when a
+ * plain `public static void main` exists it is not a bootable application.
+ *
+ * A main class whose source file cannot be read (missing path, IO error) counts as
+ * verified, so a broken language server never hides a real app.
+ */
+export async function hasSpringBootApplication(mainClasses: MainClassData[]): Promise<boolean> {
+    for (const mc of mainClasses) {
+        if (!mc.filePath) {
+            return true;
+        }
+        try {
+            const content = Buffer.from(await vscode.workspace.fs.readFile(vscode.Uri.file(mc.filePath))).toString("utf-8");
+            if (SPRING_BOOT_APPLICATION_ANNOTATION.test(content)) {
+                return true;
+            }
+        } catch {
+            return true;
+        }
+    }
+    return false;
 }
 
 export function processKey(appData: {host: string, jmxurl: string}) {

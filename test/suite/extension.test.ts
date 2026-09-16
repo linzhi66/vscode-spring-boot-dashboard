@@ -7,7 +7,7 @@ import { AppState } from "../../src/BootApp";
 import { initSymbols } from "../../src/controllers/SymbolsController";
 import { dashboard } from "../../src/global";
 import { StaticEndpoint } from "../../src/models/StaticSymbolTypes";
-import { excludeTestMainClasses, isAlive } from "../../src/utils";
+import { excludeTestMainClasses, hasSpringBootApplication, isAlive, isAppExcluded } from "../../src/utils";
 import { Bean } from "../../src/views/beans";
 import { Endpoint } from "../../src/views/mappings";
 import { setupTestEnv, sleep } from "../utils";
@@ -130,6 +130,100 @@ suite("Extension Test Suite", () => {
             mainClasses
         );
     });
+
+    test("Detects @SpringBootApplication in main class sources", async () => {
+        // Temporary files outside the workspace still read fine via workspace.fs.
+        const annotated = path.resolve("workspace", ".tmp-annotated", "AnnotatedApplication.java");
+        const plain = path.resolve("workspace", ".tmp-plain", "PlainMain.java");
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(annotated)));
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(plain)));
+        try {
+            await vscode.workspace.fs.writeFile(vscode.Uri.file(annotated), Buffer.from(`
+                package example;
+                import org.springframework.boot.autoconfigure.SpringBootApplication;
+                @SpringBootApplication
+                public class AnnotatedApplication {}
+            `));
+            await vscode.workspace.fs.writeFile(vscode.Uri.file(plain), Buffer.from(`
+                package example;
+                public class PlainMain {
+                    public static void main(String[] args) {}
+                }
+            `));
+
+            const mc = (filePath: string) => ({ mainClass: "example.X", projectName: "example", filePath });
+
+            // no main class at all -> not a boot app (typical for library modules)
+            assert.strictEqual(await hasSpringBootApplication([]), false);
+            // plain main method without the annotation -> not a boot app
+            assert.strictEqual(await hasSpringBootApplication([mc(plain)]), false);
+            // annotated main class -> boot app
+            assert.strictEqual(await hasSpringBootApplication([mc(plain), mc(annotated)]), true);
+            // missing or unreadable file paths are kept (conservative)
+            assert.strictEqual(await hasSpringBootApplication([{ mainClass: "example.X", projectName: "example" }]), true);
+            assert.strictEqual(await hasSpringBootApplication([mc(path.resolve("workspace", "no-such-file.java"))]), true);
+        } finally {
+            await vscode.workspace.fs.delete(vscode.Uri.file(path.dirname(annotated)), { recursive: true, useTrash: false });
+            await vscode.workspace.fs.delete(vscode.Uri.file(path.dirname(plain)), { recursive: true, useTrash: false });
+        }
+    });
+
+    async function updateDashboardSetting(key: string, value: unknown) {
+        await vscode.workspace.getConfiguration("spring.dashboard").update(key, value, vscode.ConfigurationTarget.Global);
+    }
+
+    test("Hides apps matching spring.dashboard.excludeApps patterns", async () => {
+        let apps = dashboard.appsProvider.manager.getAppList();
+        while (apps.length === 0) {
+            console.log("waiting until the app list is populated");
+            await sleep(5 * 1000 /** ms */);
+            apps = dashboard.appsProvider.manager.getAppList();
+        }
+        const app = apps[0];
+
+        try {
+            // exact project-name pattern
+            await updateDashboardSetting("excludeApps", [app.name]);
+            assert.strictEqual(dashboard.appsProvider.manager.getAppList().length, 0, "The app should be hidden by its name.");
+
+            // path-style glob
+            await updateDashboardSetting("excludeApps", ["**/" + app.name]);
+            assert.strictEqual(dashboard.appsProvider.manager.getAppList().length, 0, "The app should be hidden by a path glob.");
+
+            // non-matching pattern keeps the app visible
+            await updateDashboardSetting("excludeApps", ["some-other-module*"]);
+            assert.strictEqual(dashboard.appsProvider.manager.getAppList().length, 1, "The app should stay visible for non-matching patterns.");
+            assert.strictEqual(isAppExcluded("some-other-module", path.resolve("ws", "infra", "some-other-module")), true, "Name and path matches should hide the app.");
+            assert.strictEqual(isAppExcluded("common-lib", path.resolve("ws", "infra", "common-lib")), false, "Non-matching patterns should keep apps visible.");
+        } finally {
+            await updateDashboardSetting("excludeApps", []);
+        }
+    }).timeout(300 * 1000 /** ms */);
+
+    test("Keeps only @SpringBootApplication apps in annotation detection mode", async () => {
+        let apps = dashboard.appsProvider.manager.getAppList();
+        while (apps.length === 0) {
+            console.log("waiting until the app list is populated");
+            await sleep(5 * 1000 /** ms */);
+            apps = dashboard.appsProvider.manager.getAppList();
+        }
+        const app = apps[0];
+        await app.getMainClasses();
+
+        try {
+            await updateDashboardSetting("appDetection", "annotation");
+            // show-first semantics: apps stay visible until verification rejects them,
+            // so a slow language server never blanks the view or loses running states.
+            assert.strictEqual(dashboard.appsProvider.manager.getAppList().length, 1, "The app should stay visible before verification finishes.");
+            await dashboard.appsProvider.manager.verifyAllBootApps();
+            // petclinic's main class is annotated with @SpringBootApplication, so it stays visible.
+            const visible = dashboard.appsProvider.manager.getAppList();
+            assert.strictEqual(visible.length, 1, "The annotated app should stay visible in annotation mode.");
+            assert.strictEqual(visible[0].name, app.name);
+        } finally {
+            await updateDashboardSetting("appDetection", "classpath");
+        }
+    }).timeout(300 * 1000 /** ms */);
 
     test("Can view static beans and mappings", async () => {
         console.log("focusing on dashboard.apps...");

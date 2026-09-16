@@ -19,21 +19,30 @@ async function main(): Promise<void> {
          */
         const [cli, ...args] = resolveCliArgsFromVSCodeExecutablePath(vscodeExecutablePath);
 
-        cp.spawnSync(cli, [...args, '--install-extension', 'redhat.java'], {
+        // On WSL, the Linux VS Code build asks for interactive confirmation
+        // ("Do you want to continue anyway? [y/N]") before every CLI command.
+        // With an inherited (non-TTY) stdin the prompt defaults to "no" and the
+        // extension is silently not installed, leaving the test run without its
+        // dependency extensions. Answer "y" via stdin to bypass the prompt.
+        const installExtensionArgs = [...args, '--install-extension'];
+        cp.spawnSync(cli, [...installExtensionArgs, 'redhat.java'], {
             encoding: 'utf-8',
-            stdio: 'inherit',
+            stdio: ['pipe', 'inherit', 'inherit'],
+            input: 'y\n',
             shell: process.platform === 'win32'
         });
 
-        cp.spawnSync(cli, [...args, '--install-extension', 'vmware.vscode-spring-boot'], {
+        cp.spawnSync(cli, [...installExtensionArgs, 'vmware.vscode-spring-boot'], {
             encoding: 'utf-8',
-            stdio: 'inherit',
+            stdio: ['pipe', 'inherit', 'inherit'],
+            input: 'y\n',
             shell: process.platform === 'win32'
         });
 
-        cp.spawnSync(cli, [...args, '--install-extension', 'vscjava.vscode-java-debug'], {
+        cp.spawnSync(cli, [...installExtensionArgs, 'vscjava.vscode-java-debug'], {
             encoding: 'utf-8',
-            stdio: 'inherit',
+            stdio: ['pipe', 'inherit', 'inherit'],
+            input: 'y\n',
             shell: process.platform === 'win32'
         });
 

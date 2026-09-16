@@ -75,7 +75,8 @@ export async function initializeExtension(_oprationId: string, context: vscode.E
     });
     vscode.debug.onDidReceiveDebugSessionCustomEvent(e => {
         if (e.session.type === 'java' && e.event === 'processid') {
-            const app = appsProvider.manager.getAppList().find(app => app.name === e.session.configuration.projectName);
+            // unfiltered: keep PID binding even if the app is filtered from the view
+            const app = appsProvider.manager.getAllApps().find(app => app.name === e.session.configuration.projectName);
             if (app) {
                 app.pid = parseInt(e.body.processId);
             }
@@ -163,6 +164,12 @@ export async function initializeExtension(_oprationId: string, context: vscode.E
             } else {
                 disposeGutter();
             }
+        }
+        if (e.affectsConfiguration("spring.dashboard.excludeApps")) {
+            localAppManager.fireDidChangeApps(undefined);
+        }
+        if (e.affectsConfiguration("spring.dashboard.appDetection")) {
+            void localAppManager.verifyAllBootApps();
         }
     });
 
