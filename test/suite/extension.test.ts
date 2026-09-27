@@ -195,6 +195,15 @@ suite("Extension Test Suite", () => {
             assert.strictEqual(dashboard.appsProvider.manager.getAppList().length, 1, "The app should stay visible for non-matching patterns.");
             assert.strictEqual(isAppExcluded("some-other-module", path.resolve("ws", "infra", "some-other-module")), true, "Name and path matches should hide the app.");
             assert.strictEqual(isAppExcluded("common-lib", path.resolve("ws", "infra", "common-lib")), false, "Non-matching patterns should keep apps visible.");
+
+            // A slash-free pattern must only match the project name, never a path
+            // segment. Without `matchBase`, `*` also spans path separators, so
+            // `*-samples` would match `.../grp-samples/api-service` and hide an
+            // unrelated project just because its parent directory ends with `-samples`.
+            await updateDashboardSetting("excludeApps", ["*-samples"]);
+            assert.strictEqual(isAppExcluded("demo-samples", path.resolve("ws", "demo-samples")), true, "`*-samples` should hide a matching project name.");
+            assert.strictEqual(isAppExcluded("api-service", path.resolve("ws", "grp-samples", "api-service")), false, "`*-samples` must not match a path segment.");
+            assert.strictEqual(isAppExcluded("api-service", path.resolve("ws", "api-service")), false, "`*-samples` must not hide unrelated projects.");
         } finally {
             await updateDashboardSetting("excludeApps", []);
         }

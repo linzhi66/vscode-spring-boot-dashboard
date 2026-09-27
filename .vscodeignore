@@ -14,6 +14,9 @@ scripts/**
 .github
 .gitmodules
 .azp
+.idea
+.workbuddy
+CodeQL.yml
 
 # Ignore output of code sign
 lib/*.md

@@ -189,7 +189,14 @@ export function isAppExcluded(name: string, appPath: string): boolean {
         // jdt.ls reports project locations as URIs in some setups.
         candidates.push(vscode.Uri.parse(appPath).fsPath);
     }
-    return patterns.some(pattern => candidates.some(candidate => minimatch(candidate, pattern, { dot: true })));
+    // `matchBase: true` keeps name-only patterns matching by name alone. With it,
+    // minimatch only tries a slash-free pattern (e.g. `*-samples`) against the
+    // basename of a path candidate; otherwise `*` collapses to `[^/]*?` and such a
+    // pattern would match the full path `/ws/demo-samples`, silently hiding
+    // unrelated projects whose parent directory happens to end with `-samples`.
+    // Path-style patterns keep working because they contain `/` and are matched in full.
+    const options = { dot: true, matchBase: true } as const;
+    return patterns.some(pattern => candidates.some(candidate => minimatch(candidate, pattern, options)));
 }
 
 const SPRING_BOOT_APPLICATION_ANNOTATION = /@\s*(?:[\w.]+\.)?SpringBootApplication\b/;

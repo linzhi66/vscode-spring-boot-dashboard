@@ -600,6 +600,29 @@
             ],
             "scope": "window",
             "description": "Specifies whether to show gutter icon in editors."
+          },
+          "spring.dashboard.excludeApps": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "scope": "window",
+            "markdownDescription": "Glob patterns of projects to hide from the apps view. Each pattern is matched against both the project name and its path, so name-style (`*-samples`) and path-style (`**/legacy/**`) patterns are supported."
+          },
+          "spring.dashboard.appDetection": {
+            "default": "classpath",
+            "type": "string",
+            "enum": [
+              "classpath",
+              "annotation"
+            ],
+            "enumDescriptions": [
+              "An app is a project with Spring Boot on its classpath (legacy behavior)",
+              "An app is a project whose main class is annotated with @SpringBootApplication"
+            ],
+            "scope": "window",
+            "markdownDescription": "Defines how projects are detected as runnable Spring Boot apps. Use `annotation` to filter out library modules that only depend on Spring Boot indirectly (e.g. via `spring-cloud-starter-openfeign`)."
           }
         }
       }
@@ -619,6 +642,7 @@
   },
   "devDependencies": {
     "@types/async": "^3.2.24",
+    "@types/minimatch": "^3.0.5",
     "@types/mocha": "^10.0.0",
     "@types/node": "^14.18.63",
     "@types/uuid": "^3.4.13",
@@ -650,6 +674,7 @@
     "chartjs-adapter-moment": "^1.0.0",
     "get-port": "^5.1.1",
     "lodash": "^4.18.1",
+    "minimatch": "^3.1.5",
     "moment": "^2.29.4",
     "pidtree": "^1.0.0",
     "uuid": "^14.0.2",

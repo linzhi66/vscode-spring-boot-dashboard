@@ -4,10 +4,17 @@ All notable changes to the "vscode-spring-boot-dashboard" extension will be docu
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.14.1
 ### Added
 - New setting `spring.dashboard.excludeApps`: glob patterns (matched against project name and path) to hide projects from the apps view.
 - New setting `spring.dashboard.appDetection`: `annotation` mode only recognizes projects with an `@SpringBootApplication` main class as runnable apps, filtering out library modules with an indirect Spring Boot dependency (e.g. via `spring-cloud-starter-openfeign`). The default `classpath` mode keeps the legacy behavior.
+
+### Fixed
+- Apps could stay stuck in the `launching` state forever in multi-service workspaces, when the process discovery missed the freshly spawned JVM and no live connection was ever established. The app's JMX endpoint is now polled until it reports a serving port. [#216](https://github.com/microsoft/vscode-spring-boot-dashboard/issues/216)
+- A name-only `spring.dashboard.excludeApps` pattern could hide unrelated projects: `*` also matched path separators, so `*-samples` matched `.../grp-samples/api-service`. Such patterns now match the project name only; use `**` for path segments.
+
+### Changed
+- Filtering only affects the apps view; hidden or still-being-verified apps keep their running state and debug session binding.
 
 ## 0.14.0
 ### Added
